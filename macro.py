@@ -1,6 +1,6 @@
 """
-F-Spam Macro - Premium Performance Keyboard Macro
-Optimized for smooth, consistent, high-performance clicking
+Flick - Ultra-lightweight, high-performance keyboard macro
+Minimalist design with feather-inspired aesthetics
 Python 3.14.0
 """
 
@@ -12,10 +12,39 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QSlider, QCheckBox, QPushButton, QLineEdit
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QObject, QTimer, QPropertyAnimation, QEasingCurve, QRect
-from PyQt6.QtGui import QFont, QColor, QIcon
+from PyQt6.QtCore import Qt, pyqtSignal, QObject
+from PyQt6.QtGui import QFont, QPainter, QColor, QIcon, QPixmap, QPolygonF, QPen, QBrush
+from PyQt6.QtSvgWidgets import QSvgWidget
 from pynput.keyboard import Controller, Listener
 from pynput import mouse
+
+
+class FeatherIcon:
+    """Generate a minimalist feather icon"""
+    @staticmethod
+    def create_icon(size=64):
+        """Create a feather-shaped icon"""
+        pixmap = QPixmap(size, size)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        
+        # Feather shaft
+        pen = QPen(QColor("#4ade80"), 2)
+        painter.setPen(pen)
+        painter.drawLine(size // 2, size // 4, size // 2, size * 3 // 4)
+        
+        # Left feather detail
+        painter.drawLine(size // 2, size // 3, size // 3, size // 2)
+        painter.drawLine(size // 2, size // 2, size // 3, size // 2 + 8)
+        
+        # Right feather detail
+        painter.drawLine(size // 2, size // 3, size * 2 // 3, size // 2)
+        painter.drawLine(size // 2, size // 2, size * 2 // 3, size // 2 + 8)
+        
+        painter.end()
+        return QIcon(pixmap)
 
 
 class SmoothClickEngine:
@@ -132,7 +161,7 @@ class MacroWorker(QObject):
             self.thread.join(timeout=1)
 
 
-class FSpamMacro(QMainWindow):
+class Flick(QMainWindow):
     def __init__(self):
         super().__init__()
         self.worker = MacroWorker()
@@ -152,7 +181,8 @@ class FSpamMacro(QMainWindow):
         
     def init_ui(self):
         """Initialize the minimalist UI"""
-        self.setWindowTitle("F-Macro")
+        self.setWindowTitle("Flick")
+        self.setWindowIcon(FeatherIcon.create_icon(64))
         self.setGeometry(100, 100, 600, 500)
         self.setMinimumSize(600, 500)
         
@@ -162,22 +192,42 @@ class FSpamMacro(QMainWindow):
         layout.setSpacing(24)
         layout.setContentsMargins(40, 40, 40, 40)
         
-        # Header
-        header_layout = QVBoxLayout()
-        header_layout.setSpacing(8)
+        # Header with icon
+        header_layout = QHBoxLayout()
+        header_layout.setSpacing(16)
         
-        title = QLabel("F-MACRO")
-        title_font = QFont("Segoe UI", 32, QFont.Weight.Bold)
+        icon_label = QLabel()
+        icon_pixmap = QPixmap(48, 48)
+        icon_pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(icon_pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        pen = QPen(QColor("#4ade80"), 2.5)
+        painter.setPen(pen)
+        painter.drawLine(24, 12, 24, 36)
+        painter.drawLine(24, 18, 16, 24)
+        painter.drawLine(24, 24, 16, 28)
+        painter.drawLine(24, 18, 32, 24)
+        painter.drawLine(24, 24, 32, 28)
+        painter.end()
+        icon_label.setPixmap(icon_pixmap)
+        header_layout.addWidget(icon_label)
+        
+        title_layout = QVBoxLayout()
+        title_layout.setSpacing(2)
+        
+        title = QLabel("Flick")
+        title_font = QFont("Segoe UI", 36, QFont.Weight.Bold)
         title.setFont(title_font)
         title.setObjectName("title")
-        header_layout.addWidget(title)
+        title_layout.addWidget(title)
         
-        subtitle = QLabel("High-Performance Click Macro")
+        subtitle = QLabel("Click faster")
         subtitle_font = QFont("Segoe UI", 11)
         subtitle.setFont(subtitle_font)
         subtitle.setObjectName("subtitle")
-        header_layout.addWidget(subtitle)
+        title_layout.addWidget(subtitle)
         
+        header_layout.addLayout(title_layout, 1)
         layout.addLayout(header_layout)
         
         # Status and Consistency Section
@@ -315,7 +365,7 @@ class FSpamMacro(QMainWindow):
         """Setup dark theme with smooth styling"""
         dark_stylesheet = """
         QMainWindow, QWidget#mainWidget {
-            background-color: #1a1a1a;
+            background-color: #0f0f0f;
         }
         
         QLabel#title {
@@ -324,7 +374,7 @@ class FSpamMacro(QMainWindow):
         }
         
         QLabel#subtitle {
-            color: #888888;
+            color: #666666;
         }
         
         QLabel#statusLabel {
@@ -341,8 +391,8 @@ class FSpamMacro(QMainWindow):
         }
         
         QLabel#statusLabel[status="stopped"] {
-            color: #888888;
-            background-color: #252525;
+            color: #666666;
+            background-color: #1a1a1a;
         }
         
         QLabel#statusLabel[status="error"] {
@@ -354,46 +404,50 @@ class FSpamMacro(QMainWindow):
             color: #ffffff;
             font-weight: bold;
             letter-spacing: 1px;
+            font-size: 11px;
         }
         
         QLabel#consistencyLabel {
-            color: #aaaaaa;
+            color: #888888;
+            font-size: 10px;
         }
         
         QLabel#consistencyValue {
-            color: #aaaaaa;
+            color: #888888;
+            font-size: 10px;
         }
         
         QLineEdit#hotkeyDisplay {
-            background-color: #252525;
-            border: 1px solid #404040;
+            background-color: #1a1a1a;
+            border: 1px solid #333333;
             border-radius: 6px;
             color: #ffffff;
             padding: 8px 12px;
             font-size: 13px;
-            selection-background-color: #404040;
+            selection-background-color: #333333;
         }
         
         QLineEdit#hotkeyDisplay:focus {
             border: 1px solid #4ade80;
-            background-color: #2a2a2a;
+            background-color: #1e1e1e;
         }
         
         QPushButton#setButton {
-            background-color: #404040;
+            background-color: #1a1a1a;
             color: #ffffff;
-            border: none;
+            border: 1px solid #333333;
             border-radius: 6px;
             font-weight: bold;
             font-size: 12px;
         }
         
         QPushButton#setButton:hover {
-            background-color: #505050;
+            background-color: #252525;
+            border: 1px solid #4ade80;
         }
         
         QPushButton#setButton:pressed {
-            background-color: #303030;
+            background-color: #0f0f0f;
         }
         
         QPushButton#startButton {
@@ -414,24 +468,25 @@ class FSpamMacro(QMainWindow):
         }
         
         QPushButton#stopButton {
-            background-color: #ef4444;
+            background-color: #1a1a1a;
             color: #ffffff;
-            border: none;
+            border: 1px solid #333333;
             border-radius: 8px;
             font-weight: bold;
             font-size: 14px;
         }
         
         QPushButton#stopButton:hover {
-            background-color: #f87171;
+            background-color: #252525;
+            border: 1px solid #ef4444;
         }
         
         QPushButton#stopButton:pressed {
-            background-color: #dc2626;
+            background-color: #0f0f0f;
         }
         
         QSlider::groove:horizontal#cpsSlider {
-            background-color: #2a2a2a;
+            background-color: #1a1a1a;
             height: 6px;
             border-radius: 3px;
         }
@@ -453,16 +508,17 @@ class FSpamMacro(QMainWindow):
         }
         
         QCheckBox#modeCheckbox {
-            color: #aaaaaa;
+            color: #888888;
             spacing: 8px;
+            font-size: 10px;
         }
         
         QCheckBox#modeCheckbox::indicator {
             width: 18px;
             height: 18px;
             border-radius: 4px;
-            border: 1px solid #404040;
-            background-color: #252525;
+            border: 1px solid #333333;
+            background-color: #1a1a1a;
         }
         
         QCheckBox#modeCheckbox::indicator:checked {
@@ -482,15 +538,9 @@ class FSpamMacro(QMainWindow):
         percentage = int(consistency)
         self.consistency_value.setText(f"{percentage}%")
         
-        # Create gradient bar
-        filled = int((percentage / 100) * 40)
-        color = self.get_consistency_color(consistency)
-        
-        bar_html = f'<div style="width: 100%; height: 100%; border-radius: 3px;"><div style="width: {percentage}%; height: 100%; background-color: {color}; border-radius: 3px;"></div></div>'
-        
         # Simple bar update
         self.consistency_bar.setStyleSheet(f"""
-            background-color: #252525;
+            background-color: #1a1a1a;
             border-radius: 3px;
             margin: 0px;
             padding: 0px;
@@ -601,9 +651,9 @@ class FSpamMacro(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    app.setApplicationName("F-Macro")
+    app.setApplicationName("Flick")
     
-    macro = FSpamMacro()
+    macro = Flick()
     macro.show()
     
     sys.exit(app.exec())
