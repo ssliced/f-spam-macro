@@ -14,7 +14,6 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QObject, QTimer, QPropertyAnimation, QEasingCurve, QRect
 from PyQt6.QtGui import QFont, QColor, QIcon
-from PyQt6.QtSvg import QSvgWidget
 from pynput.keyboard import Controller, Listener
 from pynput import mouse
 
