@@ -1,6 +1,6 @@
 """
-Flick - Ultra-lightweight, high-performance keyboard macro
-Minimalist design with feather-inspired aesthetics
+Flick - Ultra-compact, high-performance keyboard macro
+Minimalist design with premium aesthetics
 Python 3.14.0
 """
 
@@ -10,41 +10,12 @@ import time
 from collections import deque
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QSlider, QCheckBox, QPushButton, QLineEdit
+    QLabel, QSlider, QCheckBox, QPushButton, QLineEdit, QSpinBox
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QObject
-from PyQt6.QtGui import QFont, QPainter, QColor, QIcon, QPixmap, QPolygonF, QPen, QBrush
-from PyQt6.QtSvgWidgets import QSvgWidget
+from PyQt6.QtCore import Qt, pyqtSignal, QObject, QTimer
+from PyQt6.QtGui import QFont, QColor, QIcon, QPixmap, QPainter, QPen
 from pynput.keyboard import Controller, Listener
 from pynput import mouse
-
-
-class FeatherIcon:
-    """Generate a minimalist feather icon"""
-    @staticmethod
-    def create_icon(size=64):
-        """Create a feather-shaped icon"""
-        pixmap = QPixmap(size, size)
-        pixmap.fill(Qt.GlobalColor.transparent)
-        
-        painter = QPainter(pixmap)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        
-        # Feather shaft
-        pen = QPen(QColor("#4ade80"), 2)
-        painter.setPen(pen)
-        painter.drawLine(size // 2, size // 4, size // 2, size * 3 // 4)
-        
-        # Left feather detail
-        painter.drawLine(size // 2, size // 3, size // 3, size // 2)
-        painter.drawLine(size // 2, size // 2, size // 3, size // 2 + 8)
-        
-        # Right feather detail
-        painter.drawLine(size // 2, size // 3, size * 2 // 3, size // 2)
-        painter.drawLine(size // 2, size // 2, size * 2 // 3, size // 2 + 8)
-        
-        painter.end()
-        return QIcon(pixmap)
 
 
 class SmoothClickEngine:
@@ -55,6 +26,7 @@ class SmoothClickEngine:
         self.mouse_controller = mouse.Controller()
         self.click_times = deque(maxlen=100)
         self.is_running = False
+        self.total_clicks = 0
         
     def execute_click(self, use_mouse=False):
         """Execute a single click with minimal latency"""
@@ -69,6 +41,7 @@ class SmoothClickEngine:
             
             elapsed = time.perf_counter() - start
             self.click_times.append(elapsed)
+            self.total_clicks += 1
         except Exception as e:
             raise e
     
@@ -81,15 +54,20 @@ class SmoothClickEngine:
         variance = sum((t - avg_time) ** 2 for t in self.click_times) / len(self.click_times)
         std_dev = variance ** 0.5
         
-        # Calculate consistency (lower std dev = higher consistency)
         consistency = max(0, 100 - (std_dev * 1000))
         return min(100, consistency)
+    
+    def reset_stats(self):
+        """Reset statistics"""
+        self.click_times.clear()
+        self.total_clicks = 0
 
 
 class MacroWorker(QObject):
     """Worker thread for macro execution"""
     status_changed = pyqtSignal(str)
     consistency_changed = pyqtSignal(float)
+    clicks_changed = pyqtSignal(int)
     
     def __init__(self):
         super().__init__()
@@ -127,8 +105,8 @@ class MacroWorker(QObject):
                     try:
                         self.engine.execute_click(use_mouse)
                         last_click_time = time.perf_counter()
+                        self.clicks_changed.emit(self.engine.total_clicks)
                         
-                        # Update consistency every 10 clicks
                         self.consistency_update_counter += 1
                         if self.consistency_update_counter >= 10:
                             consistency = self.engine.get_consistency()
@@ -139,12 +117,10 @@ class MacroWorker(QObject):
                         self.is_running = False
                         break
                 else:
-                    # Precise sleep with busy-wait for final microseconds
                     sleep_time = target_delay - time_since_last - 0.001
                     if sleep_time > 0:
                         time.sleep(sleep_time)
                     
-                    # Busy-wait for final precision
                     while time.perf_counter() - last_click_time < target_delay:
                         pass
                         
@@ -159,6 +135,11 @@ class MacroWorker(QObject):
         self.is_running = False
         if self.thread:
             self.thread.join(timeout=1)
+    
+    def reset_stats(self):
+        """Reset click counter"""
+        self.engine.reset_stats()
+        self.clicks_changed.emit(0)
 
 
 class Flick(QMainWindow):
@@ -167,6 +148,7 @@ class Flick(QMainWindow):
         self.worker = MacroWorker()
         self.worker.status_changed.connect(self.on_status_changed)
         self.worker.consistency_changed.connect(self.on_consistency_changed)
+        self.worker.clicks_changed.connect(self.on_clicks_changed)
         
         self.hotkey = None
         self.listening = False
@@ -174,171 +156,225 @@ class Flick(QMainWindow):
         self.macro_active = False
         self.listener = None
         self.current_cps = 10
+        self.session_time = 0
+        self.session_timer = QTimer()
+        self.session_timer.timeout.connect(self.update_session_time)
         
         self.init_ui()
         self.setup_styles()
         self.start_listener()
         
     def init_ui(self):
-        """Initialize the minimalist UI"""
+        """Initialize the compact UI"""
         self.setWindowTitle("Flick")
-        self.setWindowIcon(FeatherIcon.create_icon(64))
-        self.setGeometry(100, 100, 600, 500)
-        self.setMinimumSize(600, 500)
+        self.setGeometry(100, 100, 480, 560)
+        self.setMinimumSize(480, 560)
+        self.setMaximumSize(520, 600)
+        
+        # Set window properties for rounded corners on Windows
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
         
         main_widget = QWidget()
         main_widget.setObjectName("mainWidget")
         layout = QVBoxLayout()
-        layout.setSpacing(24)
-        layout.setContentsMargins(40, 40, 40, 40)
+        layout.setSpacing(0)
+        layout.setContentsMargins(0, 0, 0, 0)
         
-        # Header with icon
-        header_layout = QHBoxLayout()
-        header_layout.setSpacing(16)
+        # Header (Compact)
+        header_widget = QWidget()
+        header_widget.setObjectName("headerWidget")
+        header_widget.setMaximumHeight(70)
+        header_layout = QVBoxLayout()
+        header_layout.setSpacing(8)
+        header_layout.setContentsMargins(24, 16, 24, 16)
         
-        icon_label = QLabel()
-        icon_pixmap = QPixmap(48, 48)
-        icon_pixmap.fill(Qt.GlobalColor.transparent)
-        painter = QPainter(icon_pixmap)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        pen = QPen(QColor("#4ade80"), 2.5)
-        painter.setPen(pen)
-        painter.drawLine(24, 12, 24, 36)
-        painter.drawLine(24, 18, 16, 24)
-        painter.drawLine(24, 24, 16, 28)
-        painter.drawLine(24, 18, 32, 24)
-        painter.drawLine(24, 24, 32, 28)
-        painter.end()
-        icon_label.setPixmap(icon_pixmap)
-        header_layout.addWidget(icon_label)
-        
-        title_layout = QVBoxLayout()
-        title_layout.setSpacing(2)
-        
-        title = QLabel("Flick")
-        title_font = QFont("Segoe UI", 36, QFont.Weight.Bold)
+        title = QLabel("flick")
+        title_font = QFont("Segoe UI", 20, QFont.Weight.Bold)
         title.setFont(title_font)
         title.setObjectName("title")
-        title_layout.addWidget(title)
+        header_layout.addWidget(title)
         
-        subtitle = QLabel("Click faster")
-        subtitle_font = QFont("Segoe UI", 11)
-        subtitle.setFont(subtitle_font)
-        subtitle.setObjectName("subtitle")
-        title_layout.addWidget(subtitle)
+        header_widget.setLayout(header_layout)
+        layout.addWidget(header_widget)
         
-        header_layout.addLayout(title_layout, 1)
-        layout.addLayout(header_layout)
+        # Content
+        content_widget = QWidget()
+        content_layout = QVBoxLayout()
+        content_layout.setSpacing(16)
+        content_layout.setContentsMargins(24, 20, 24, 24)
         
-        # Status and Consistency Section
-        status_section = QVBoxLayout()
-        status_section.setSpacing(12)
-        
+        # Status Indicator
         self.status_label = QLabel("READY")
-        status_font = QFont("Segoe UI", 16, QFont.Weight.Bold)
+        status_font = QFont("Segoe UI", 12, QFont.Weight.Bold)
         self.status_label.setFont(status_font)
         self.status_label.setObjectName("statusLabel")
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        status_section.addWidget(self.status_label)
+        self.status_label.setMaximumHeight(36)
+        content_layout.addWidget(self.status_label)
         
-        # Consistency meter
+        # Stats Row
+        stats_layout = QHBoxLayout()
+        stats_layout.setSpacing(12)
+        
+        # Consistency
+        consistency_group = QVBoxLayout()
+        consistency_group.setSpacing(4)
         consistency_label = QLabel("Consistency")
-        consistency_label_font = QFont("Segoe UI", 10)
-        consistency_label.setFont(consistency_label_font)
-        consistency_label.setObjectName("consistencyLabel")
-        status_section.addWidget(consistency_label)
-        
-        self.consistency_bar = QLabel()
-        self.consistency_bar.setObjectName("consistencyBar")
-        self.consistency_bar.setMinimumHeight(6)
-        self.consistency_bar.setMaximumHeight(6)
-        self.consistency_bar.setText("")
-        status_section.addWidget(self.consistency_bar)
-        
+        consistency_label.setObjectName("statLabel")
+        consistency_label.setFont(QFont("Segoe UI", 9))
         self.consistency_value = QLabel("100%")
-        consistency_value_font = QFont("Segoe UI", 10)
-        consistency_value_font.setLetterSpacing(QFont.SpacingType.AbsoluteSpacing, 1)
-        self.consistency_value.setFont(consistency_value_font)
-        self.consistency_value.setObjectName("consistencyValue")
-        self.consistency_value.setAlignment(Qt.AlignmentFlag.AlignRight)
-        status_section.addWidget(self.consistency_value)
+        self.consistency_value.setObjectName("statValue")
+        self.consistency_value.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
+        consistency_group.addWidget(consistency_label)
+        consistency_group.addWidget(self.consistency_value)
+        stats_layout.addLayout(consistency_group, 1)
         
-        layout.addLayout(status_section)
+        # Clicks
+        clicks_group = QVBoxLayout()
+        clicks_group.setSpacing(4)
+        clicks_label = QLabel("Clicks")
+        clicks_label.setObjectName("statLabel")
+        clicks_label.setFont(QFont("Segoe UI", 9))
+        self.clicks_value = QLabel("0")
+        self.clicks_value.setObjectName("statValue")
+        self.clicks_value.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
+        clicks_group.addWidget(clicks_label)
+        clicks_group.addWidget(self.clicks_value)
+        stats_layout.addLayout(clicks_group, 1)
         
-        # Hotkey Section
-        hotkey_section = QVBoxLayout()
-        hotkey_section.setSpacing(12)
+        # Session Time
+        time_group = QVBoxLayout()
+        time_group.setSpacing(4)
+        time_label = QLabel("Time")
+        time_label.setObjectName("statLabel")
+        time_label.setFont(QFont("Segoe UI", 9))
+        self.time_value = QLabel("0s")
+        self.time_value.setObjectName("statValue")
+        self.time_value.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
+        time_group.addWidget(time_label)
+        time_group.addWidget(self.time_value)
+        stats_layout.addLayout(time_group, 1)
         
-        hotkey_label = QLabel("HOTKEY")
-        hotkey_label_font = QFont("Segoe UI", 10, QFont.Weight.Bold)
-        hotkey_label.setFont(hotkey_label_font)
-        hotkey_label.setObjectName("sectionLabel")
-        hotkey_section.addWidget(hotkey_label)
-        
-        hotkey_button_layout = QHBoxLayout()
-        hotkey_button_layout.setSpacing(12)
-        
-        self.hotkey_display = QLineEdit()
-        self.hotkey_display.setReadOnly(True)
-        self.hotkey_display.setText("None")
-        self.hotkey_display.setObjectName("hotkeyDisplay")
-        self.hotkey_display.setMinimumHeight(40)
-        hotkey_button_layout.addWidget(self.hotkey_display, 1)
-        
-        set_hotkey_btn = QPushButton("Set")
-        set_hotkey_btn.setObjectName("setButton")
-        set_hotkey_btn.clicked.connect(self.set_hotkey_mode)
-        set_hotkey_btn.setMinimumHeight(40)
-        set_hotkey_btn.setMaximumWidth(80)
-        hotkey_button_layout.addWidget(set_hotkey_btn)
-        
-        hotkey_section.addLayout(hotkey_button_layout)
-        
-        # Toggle mode
-        self.toggle_checkbox = QCheckBox("Toggle Mode")
-        self.toggle_checkbox.setObjectName("modeCheckbox")
-        self.toggle_checkbox.setMinimumHeight(30)
-        self.toggle_checkbox.setChecked(False)
-        toggle_font = QFont("Segoe UI", 10)
-        self.toggle_checkbox.setFont(toggle_font)
-        hotkey_section.addWidget(self.toggle_checkbox)
-        
-        layout.addLayout(hotkey_section)
+        content_layout.addLayout(stats_layout)
         
         # CPS Section
         cps_section = QVBoxLayout()
-        cps_section.setSpacing(12)
+        cps_section.setSpacing(8)
         
-        cps_label = QLabel("CLICKS PER SECOND")
-        cps_label_font = QFont("Segoe UI", 10, QFont.Weight.Bold)
-        cps_label.setFont(cps_label_font)
+        cps_label = QLabel("CPS")
         cps_label.setObjectName("sectionLabel")
+        cps_label.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
         cps_section.addWidget(cps_label)
         
-        cps_display_layout = QHBoxLayout()
+        cps_layout = QHBoxLayout()
+        cps_layout.setSpacing(8)
+        
+        self.cps_spinbox = QSpinBox()
+        self.cps_spinbox.setObjectName("cpsSpinBox")
+        self.cps_spinbox.setMinimum(1)
+        self.cps_spinbox.setMaximum(500)
+        self.cps_spinbox.setValue(10)
+        self.cps_spinbox.valueChanged.connect(self.on_cps_changed)
+        self.cps_spinbox.setMinimumHeight(32)
+        self.cps_spinbox.setMaximumWidth(80)
+        cps_layout.addWidget(self.cps_spinbox)
         
         self.cps_slider = QSlider(Qt.Orientation.Horizontal)
         self.cps_slider.setObjectName("cpsSlider")
         self.cps_slider.setMinimum(1)
         self.cps_slider.setMaximum(500)
         self.cps_slider.setValue(10)
-        self.cps_slider.setMinimumHeight(6)
-        self.cps_slider.sliderMoved.connect(self.on_cps_changed)
-        self.cps_slider.valueChanged.connect(self.on_cps_changed)
-        cps_display_layout.addWidget(self.cps_slider, 1)
+        self.cps_slider.setMinimumHeight(4)
+        self.cps_slider.sliderMoved.connect(self.on_slider_moved)
+        self.cps_slider.valueChanged.connect(self.sync_spinbox)
+        cps_layout.addWidget(self.cps_slider, 1)
         
-        self.cps_value = QLabel("10")
-        cps_value_font = QFont("Segoe UI", 12, QFont.Weight.Bold)
-        self.cps_value.setFont(cps_value_font)
-        self.cps_value.setObjectName("cpsValue")
-        self.cps_value.setMinimumWidth(50)
-        cps_display_layout.addWidget(self.cps_value)
+        cps_section.addLayout(cps_layout)
+        content_layout.addLayout(cps_section)
         
-        cps_section.addLayout(cps_display_layout)
+        # Hotkey Section
+        hotkey_section = QVBoxLayout()
+        hotkey_section.setSpacing(8)
         
-        layout.addLayout(cps_section)
+        hotkey_label = QLabel("HOTKEY")
+        hotkey_label.setObjectName("sectionLabel")
+        hotkey_label.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        hotkey_section.addWidget(hotkey_label)
         
-        layout.addStretch()
+        hotkey_layout = QHBoxLayout()
+        hotkey_layout.setSpacing(8)
+        
+        self.hotkey_display = QLineEdit()
+        self.hotkey_display.setReadOnly(True)
+        self.hotkey_display.setText("None")
+        self.hotkey_display.setObjectName("hotkeyDisplay")
+        self.hotkey_display.setMinimumHeight(32)
+        hotkey_layout.addWidget(self.hotkey_display, 1)
+        
+        set_hotkey_btn = QPushButton("Set")
+        set_hotkey_btn.setObjectName("setButton")
+        set_hotkey_btn.clicked.connect(self.set_hotkey_mode)
+        set_hotkey_btn.setMinimumHeight(32)
+        set_hotkey_btn.setMaximumWidth(60)
+        hotkey_layout.addWidget(set_hotkey_btn)
+        
+        hotkey_section.addLayout(hotkey_layout)
+        
+        # Mode Options
+        mode_layout = QHBoxLayout()
+        mode_layout.setSpacing(12)
+        
+        self.toggle_checkbox = QCheckBox("Toggle")
+        self.toggle_checkbox.setObjectName("modeCheckbox")
+        self.toggle_checkbox.setFont(QFont("Segoe UI", 9))
+        mode_layout.addWidget(self.toggle_checkbox)
+        
+        reset_btn = QPushButton("Reset Stats")
+        reset_btn.setObjectName("resetButton")
+        reset_btn.clicked.connect(self.reset_stats)
+        reset_btn.setFont(QFont("Segoe UI", 9))
+        reset_btn.setMaximumWidth(100)
+        reset_btn.setMinimumHeight(28)
+        mode_layout.addWidget(reset_btn)
+        
+        mode_layout.addStretch()
+        
+        hotkey_section.addLayout(mode_layout)
+        content_layout.addLayout(hotkey_section)
+        
+        # MISC Features
+        misc_section = QVBoxLayout()
+        misc_section.setSpacing(8)
+        
+        misc_label = QLabel("MISC")
+        misc_label.setObjectName("sectionLabel")
+        misc_label.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        misc_section.addWidget(misc_label)
+        
+        misc_options = QVBoxLayout()
+        misc_options.setSpacing(6)
+        
+        self.mouse_click_checkbox = QCheckBox("Mouse Click")
+        self.mouse_click_checkbox.setObjectName("miscCheckbox")
+        self.mouse_click_checkbox.setFont(QFont("Segoe UI", 9))
+        misc_options.addWidget(self.mouse_click_checkbox)
+        
+        self.visual_feedback_checkbox = QCheckBox("Visual Feedback")
+        self.visual_feedback_checkbox.setObjectName("miscCheckbox")
+        self.visual_feedback_checkbox.setFont(QFont("Segoe UI", 9))
+        self.visual_feedback_checkbox.setChecked(True)
+        misc_options.addWidget(self.visual_feedback_checkbox)
+        
+        self.auto_stop_checkbox = QCheckBox("Auto-stop on deactivate")
+        self.auto_stop_checkbox.setObjectName("miscCheckbox")
+        self.auto_stop_checkbox.setFont(QFont("Segoe UI", 9))
+        self.auto_stop_checkbox.setChecked(False)
+        misc_options.addWidget(self.auto_stop_checkbox)
+        
+        misc_section.addLayout(misc_options)
+        content_layout.addLayout(misc_section)
+        
+        content_layout.addStretch()
         
         # Control Buttons
         button_layout = QHBoxLayout()
@@ -347,16 +383,21 @@ class Flick(QMainWindow):
         start_btn = QPushButton("START")
         start_btn.setObjectName("startButton")
         start_btn.clicked.connect(self.start_macro)
-        start_btn.setMinimumHeight(50)
+        start_btn.setMinimumHeight(40)
+        start_btn.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
         button_layout.addWidget(start_btn)
         
         stop_btn = QPushButton("STOP")
         stop_btn.setObjectName("stopButton")
         stop_btn.clicked.connect(self.stop_macro)
-        stop_btn.setMinimumHeight(50)
+        stop_btn.setMinimumHeight(40)
+        stop_btn.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
         button_layout.addWidget(stop_btn)
         
-        layout.addLayout(button_layout)
+        content_layout.addLayout(button_layout)
+        
+        content_widget.setLayout(content_layout)
+        layout.addWidget(content_widget)
         
         main_widget.setLayout(layout)
         self.setCentralWidget(main_widget)
@@ -364,8 +405,17 @@ class Flick(QMainWindow):
     def setup_styles(self):
         """Setup dark theme with smooth styling"""
         dark_stylesheet = """
-        QMainWindow, QWidget#mainWidget {
-            background-color: #0f0f0f;
+        QMainWindow {
+            background-color: #0d0d0d;
+        }
+        
+        QWidget#mainWidget {
+            background-color: #0d0d0d;
+        }
+        
+        QWidget#headerWidget {
+            background-color: #1a1a1a;
+            border-radius: 0px;
         }
         
         QLabel#title {
@@ -373,16 +423,12 @@ class Flick(QMainWindow):
             font-weight: bold;
         }
         
-        QLabel#subtitle {
-            color: #666666;
-        }
-        
         QLabel#statusLabel {
             color: #4ade80;
             font-weight: bold;
-            padding: 12px;
-            background-color: #1e3a1e;
-            border-radius: 8px;
+            padding: 8px;
+            background-color: #1a1a1a;
+            border-radius: 6px;
         }
         
         QLabel#statusLabel[status="running"] {
@@ -400,45 +446,64 @@ class Flick(QMainWindow):
             background-color: #3a1e1e;
         }
         
+        QLabel#statLabel {
+            color: #888888;
+            font-size: 9px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        QLabel#statValue {
+            color: #4ade80;
+            font-weight: bold;
+        }
+        
         QLabel#sectionLabel {
             color: #ffffff;
             font-weight: bold;
             letter-spacing: 1px;
-            font-size: 11px;
-        }
-        
-        QLabel#consistencyLabel {
-            color: #888888;
-            font-size: 10px;
-        }
-        
-        QLabel#consistencyValue {
-            color: #888888;
-            font-size: 10px;
+            text-transform: uppercase;
         }
         
         QLineEdit#hotkeyDisplay {
             background-color: #1a1a1a;
             border: 1px solid #333333;
-            border-radius: 6px;
+            border-radius: 4px;
             color: #ffffff;
-            padding: 8px 12px;
-            font-size: 13px;
-            selection-background-color: #333333;
+            padding: 6px 10px;
+            font-size: 12px;
         }
         
         QLineEdit#hotkeyDisplay:focus {
             border: 1px solid #4ade80;
-            background-color: #1e1e1e;
+            background-color: #1f1f1f;
+        }
+        
+        QSpinBox#cpsSpinBox {
+            background-color: #1a1a1a;
+            border: 1px solid #333333;
+            border-radius: 4px;
+            color: #4ade80;
+            padding: 4px;
+            font-weight: bold;
+        }
+        
+        QSpinBox#cpsSpinBox:focus {
+            border: 1px solid #4ade80;
+        }
+        
+        QSpinBox#cpsSpinBox::up-button, QSpinBox#cpsSpinBox::down-button {
+            background-color: #333333;
+            border: none;
         }
         
         QPushButton#setButton {
             background-color: #1a1a1a;
             color: #ffffff;
             border: 1px solid #333333;
-            border-radius: 6px;
+            border-radius: 4px;
             font-weight: bold;
-            font-size: 12px;
+            font-size: 11px;
         }
         
         QPushButton#setButton:hover {
@@ -450,13 +515,26 @@ class Flick(QMainWindow):
             background-color: #0f0f0f;
         }
         
+        QPushButton#resetButton {
+            background-color: #1a1a1a;
+            color: #ffffff;
+            border: 1px solid #333333;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 9px;
+        }
+        
+        QPushButton#resetButton:hover {
+            background-color: #252525;
+            border: 1px solid #666666;
+        }
+        
         QPushButton#startButton {
             background-color: #4ade80;
             color: #000000;
             border: none;
-            border-radius: 8px;
+            border-radius: 6px;
             font-weight: bold;
-            font-size: 14px;
         }
         
         QPushButton#startButton:hover {
@@ -471,9 +549,8 @@ class Flick(QMainWindow):
             background-color: #1a1a1a;
             color: #ffffff;
             border: 1px solid #333333;
-            border-radius: 8px;
+            border-radius: 6px;
             font-weight: bold;
-            font-size: 14px;
         }
         
         QPushButton#stopButton:hover {
@@ -487,15 +564,15 @@ class Flick(QMainWindow):
         
         QSlider::groove:horizontal#cpsSlider {
             background-color: #1a1a1a;
-            height: 6px;
-            border-radius: 3px;
+            height: 4px;
+            border-radius: 2px;
         }
         
         QSlider::handle:horizontal#cpsSlider {
             background-color: #4ade80;
-            width: 18px;
-            margin: -6px 0;
-            border-radius: 9px;
+            width: 14px;
+            margin: -5px 0;
+            border-radius: 7px;
         }
         
         QSlider::handle:horizontal#cpsSlider:hover {
@@ -504,19 +581,19 @@ class Flick(QMainWindow):
         
         QSlider::sub-page:horizontal#cpsSlider {
             background-color: #4ade80;
-            border-radius: 3px;
+            border-radius: 2px;
         }
         
         QCheckBox#modeCheckbox {
-            color: #888888;
-            spacing: 8px;
+            color: #aaaaaa;
+            spacing: 6px;
             font-size: 10px;
         }
         
         QCheckBox#modeCheckbox::indicator {
-            width: 18px;
-            height: 18px;
-            border-radius: 4px;
+            width: 16px;
+            height: 16px;
+            border-radius: 3px;
             border: 1px solid #333333;
             background-color: #1a1a1a;
         }
@@ -529,35 +606,33 @@ class Flick(QMainWindow):
         QCheckBox#modeCheckbox::indicator:hover {
             border: 1px solid #4ade80;
         }
+        
+        QCheckBox#miscCheckbox {
+            color: #aaaaaa;
+            spacing: 6px;
+            font-size: 9px;
+        }
+        
+        QCheckBox#miscCheckbox::indicator {
+            width: 14px;
+            height: 14px;
+            border-radius: 2px;
+            border: 1px solid #333333;
+            background-color: #1a1a1a;
+        }
+        
+        QCheckBox#miscCheckbox::indicator:checked {
+            background-color: #4ade80;
+            border: 1px solid #4ade80;
+        }
+        
+        QCheckBox#miscCheckbox::indicator:hover {
+            border: 1px solid #4ade80;
+        }
         """
         
         self.setStyleSheet(dark_stylesheet)
         
-    def set_consistency_bar(self, consistency):
-        """Update consistency bar visualization"""
-        percentage = int(consistency)
-        self.consistency_value.setText(f"{percentage}%")
-        
-        # Simple bar update
-        self.consistency_bar.setStyleSheet(f"""
-            background-color: #1a1a1a;
-            border-radius: 3px;
-            margin: 0px;
-            padding: 0px;
-            qproperty-text: "";
-        """)
-        
-    def get_consistency_color(self, consistency):
-        """Get color based on consistency value"""
-        if consistency >= 90:
-            return "#4ade80"
-        elif consistency >= 75:
-            return "#eab308"
-        elif consistency >= 50:
-            return "#f97316"
-        else:
-            return "#ef4444"
-    
     def set_hotkey_mode(self):
         """Enter hotkey setting mode"""
         self.hotkey_display.setText("LISTENING...")
@@ -603,9 +678,25 @@ class Flick(QMainWindow):
         self.listener.start()
     
     def on_cps_changed(self):
-        """Handle CPS slider change"""
+        """Handle CPS spinbox change"""
+        self.current_cps = self.cps_spinbox.value()
+        self.cps_slider.blockSignals(True)
+        self.cps_slider.setValue(self.current_cps)
+        self.cps_slider.blockSignals(False)
+    
+    def on_slider_moved(self):
+        """Handle CPS slider move"""
+        self.cps_spinbox.blockSignals(True)
+        self.cps_spinbox.setValue(self.cps_slider.value())
+        self.cps_spinbox.blockSignals(False)
         self.current_cps = self.cps_slider.value()
-        self.cps_value.setText(str(self.current_cps))
+    
+    def sync_spinbox(self):
+        """Sync spinbox with slider"""
+        self.cps_spinbox.blockSignals(True)
+        self.cps_spinbox.setValue(self.cps_slider.value())
+        self.cps_spinbox.blockSignals(False)
+        self.current_cps = self.cps_slider.value()
         
     def start_macro(self):
         """Start the macro"""
@@ -614,13 +705,26 @@ class Flick(QMainWindow):
         
         self.macro_active = True
         self.is_toggle_mode = self.toggle_checkbox.isChecked()
+        self.session_timer.start(1000)
         
-        self.worker.start_macro(self.current_cps, use_mouse=False)
+        use_mouse = self.mouse_click_checkbox.isChecked()
+        self.worker.start_macro(self.current_cps, use_mouse=use_mouse)
         
     def stop_macro(self):
         """Stop the macro"""
         self.macro_active = False
+        self.session_timer.stop()
         self.worker.stop_macro()
+        
+    def update_session_time(self):
+        """Update session time"""
+        self.session_time += 1
+        mins = self.session_time // 60
+        secs = self.session_time % 60
+        if mins > 0:
+            self.time_value.setText(f"{mins}m {secs}s")
+        else:
+            self.time_value.setText(f"{secs}s")
         
     def on_status_changed(self, status):
         """Update status label"""
@@ -639,7 +743,23 @@ class Flick(QMainWindow):
         
     def on_consistency_changed(self, consistency):
         """Update consistency display"""
-        self.set_consistency_bar(consistency)
+        percentage = int(consistency)
+        self.consistency_value.setText(f"{percentage}%")
+    
+    def on_clicks_changed(self, clicks):
+        """Update clicks display"""
+        if clicks >= 1000:
+            self.clicks_value.setText(f"{clicks // 1000}K")
+        else:
+            self.clicks_value.setText(str(clicks))
+    
+    def reset_stats(self):
+        """Reset all statistics"""
+        self.worker.reset_stats()
+        self.consistency_value.setText("100%")
+        self.clicks_value.setText("0")
+        self.session_time = 0
+        self.time_value.setText("0s")
         
     def closeEvent(self, event):
         """Clean up on close"""
